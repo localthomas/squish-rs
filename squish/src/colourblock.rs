@@ -22,7 +22,10 @@
 
 use core::{mem, u8};
 
-use crate::math::{f32_to_i32_clamped, Vec3};
+use crate::{
+    math::{f32_to_i32_clamped, Vec3},
+    RawColor4x4Block,
+};
 
 /// Convert a colour value to a little endian u16
 fn pack_565(colour: &Vec3) -> u16 {
@@ -112,9 +115,12 @@ fn unpack_565(packed: &[u8]) -> [u8; 4] {
     [r, g, b, 255u8]
 }
 
-/// Decompress a BC1/2/3 block to 4x4 RGBA pixels
-pub fn decompress(bytes: &[u8], is_bc1: bool) -> [[u8; 4]; 16] {
+/// Decompress a BC1/2/3 block to 4x4 RGBA pixels.
+/// Note that BC1 can store an implicit 1-bit alpha channel using the order of the color endpoints.
+pub(crate) fn decompress(bytes: &[u8], is_bc1: bool, output: &mut impl RawColor4x4Block) {
+    const NUMBER_OF_COLOR_CHANNELS: usize = 4;
     assert!(bytes.len() == 8);
+    assert!(output.number_of_channels() >= NUMBER_OF_COLOR_CHANNELS);
 
     let mut codes = [0u8; 16];
 
@@ -165,5 +171,14 @@ pub fn decompress(bytes: &[u8], is_bc1: bool) -> [[u8; 4]; 16] {
         rgba[i].copy_from_slice(&codes[offset..(offset + length)])
     }
 
-    rgba
+    for y in 0..4 {
+        for x in 0..4 {
+            let pixel_index = (y * 4) + x;
+
+            let color = rgba[pixel_index];
+            for (color_channel, color_value) in color.iter().enumerate() {
+                output.set_value(x, y, color_channel, *color_value);
+            }
+        }
+    }
 }

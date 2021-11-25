@@ -168,6 +168,19 @@ impl Format {
         }
     }
 
+    /// Returns the amount of bytes per pixel for the given format.
+    /// E.g. 2 for R8G8 or 3 for R8G8B8.
+    /// The interpretation of each byte (be it red, green, ...) is left to the application.
+    pub fn decompressed_bytes_per_pixel(self) -> usize {
+        match self {
+            Format::Bc1 => 4, // Note that BC1 offers only 1-bit alpha values
+            Format::Bc2 => 4,
+            Format::Bc3 => 4,
+            Format::Bc4 => 1,
+            Format::Bc5 => 2,
+        }
+    }
+
     /// Computes the amount of space in bytes needed for an image of given size,
     /// accounting for padding to a multiple of 4x4 pixels
     ///
@@ -239,7 +252,7 @@ impl Format {
     /// * `block`  - The compressed block of pixels
     /// * `output` - Storage for the decompressed block of pixels
     pub fn decompress_block(self, block: &[u8]) -> [[u8; 4]; 16] {
-        let mut rgba;
+        let mut rgba = [[0, 0, 0, 0xFF]; 16];
         // decompress colour block
         match self {
             Format::Bc1 | Format::Bc2 | Format::Bc3 => {
@@ -248,11 +261,9 @@ impl Format {
                 let colour_block = &block[colour_offset..colour_offset + 8];
 
                 // decompress colour block
-                rgba = colourblock::decompress(colour_block, self == Format::Bc1);
-            },
-            _ => {
-                rgba = [[0, 0, 0, 0xFF]; 16];
-            },
+                colourblock::decompress(colour_block, self == Format::Bc1, &mut rgba);
+            }
+            _ => (),
         }
 
         // decompress alpha block(s)
@@ -336,6 +347,40 @@ impl Format {
     }
 }
 
+/// Abstracts over any form of byte storage that is able to hold n color channels of a 4x4 pixel block.
+trait RawColor4x4Block {
+    /// Set the value at the position (x, y) with 0 <= x < 4 and 0 <= y < 4.
+    /// The channel is the offset of the color channel with the convention of 0 = red, 1 = green, 2 = blue, 3 = alpha.
+    fn set_value(&mut self, x: usize, y: usize, channel: usize, value: u8);
+
+    /// Get the value at position (x, y) with 0 <= x < 4 and 0 <= y < 4.
+    /// The channel is the offset of the color channel with the convention of 0 = red, 1 = green, 2 = blue, 3 = alpha.
+    fn get_value(&mut self, x: usize, y: usize, channel: usize) -> u8;
+
+    /// Returns the number of channels supported by the underlying storage.
+    fn number_of_channels(&self) -> usize;
+}
+
+fn index_4x4_block(x: usize, y: usize) -> usize {
+    (y * 4) + x
+}
+
+impl<const N: usize> RawColor4x4Block for [[u8; N]; 16] {
+    fn set_value(&mut self, x: usize, y: usize, channel: usize, value: u8) {
+        let pixel_index = index_4x4_block(x, y);
+        self[pixel_index][channel] = value;
+    }
+
+    fn get_value(&mut self, x: usize, y: usize, channel: usize) -> u8 {
+        let pixel_index = index_4x4_block(x, y);
+        self[pixel_index][channel]
+    }
+
+    fn number_of_channels(&self) -> usize {
+        N
+    }
+}
+
 //--------------------------------------------------------------------------------
 // Unit tests
 //--------------------------------------------------------------------------------
@@ -356,6 +401,22 @@ mod tests {
         assert_eq!(Format::Bc4.compressed_size(15, 32), 256);
         assert_eq!(Format::Bc5.compressed_size(16, 32), 512);
         assert_eq!(Format::Bc5.compressed_size(15, 32), 512);
+    }
+
+    #[test]
+    fn test_raw_color_4x4_block() {
+        let mut block = [[0u8; 4]; 16];
+        assert_eq!(block[0], [0, 0, 0, 0]);
+        assert_eq!(block.number_of_channels(), 4);
+
+        block.set_value(0, 0, 0, 0xFF);
+        assert_eq!(block[0], [0xFF, 0, 0, 0]);
+        block.set_value(0, 0, 3, 0xFF);
+        assert_eq!(block[0], [0xFF, 0, 0, 0xFF]);
+        block.set_value(3, 3, 0, 0xFF);
+        assert_eq!(block[15], [0xFF, 0, 0, 0]);
+        block.set_value(3, 3, 3, 0xFF);
+        assert_eq!(block[15], [0xFF, 0, 0, 0xFF]);
     }
 
     // The test-pattern is a gray-scale checkerboard of size 4x4 with 0xFF in the top-left.
