@@ -22,7 +22,7 @@
 
 use core::{f32, u32, u8};
 
-use crate::math::f32_to_i32_clamped;
+use crate::{math::f32_to_i32_clamped, RawColor4x4Block};
 
 pub fn compress_bc2(rgba: &[[u8; 4]; 16], mask: u32, block: &mut [u8]) {
     let mut tmp = [0u8; 8];
@@ -50,8 +50,10 @@ pub fn compress_bc2(rgba: &[[u8; 4]; 16], mask: u32, block: &mut [u8]) {
     block.copy_from_slice(&tmp);
 }
 
-pub fn decompress_bc2(rgba: &mut [[u8; 4]; 16], bytes: &[u8]) {
-    assert!(bytes.len() == 8);
+pub(crate) fn decompress_bc2(output: &mut impl RawColor4x4Block, bytes: &[u8]) {
+    assert_eq!(bytes.len(), 8);
+    assert_eq!(output.number_of_channels(), 4);
+    const ALPHA_CHANNEL: usize = 3;
 
     // unpack alpha values pairwise
     for i in 0..bytes.len() {
@@ -62,8 +64,16 @@ pub fn decompress_bc2(rgba: &mut [[u8; 4]; 16], bytes: &[u8]) {
         let hi = quant & 0xF0;
 
         // convert back up to bytes
-        rgba[2 * i][3] = lo | (lo << 4);
-        rgba[2 * i + 1][3] = hi | (hi >> 4);
+        let low_byte = lo | (lo << 4);
+        let i_2 = 2 * i;
+        let x = i_2 % 4;
+        let y = i_2 / 4;
+        output.set_value(x, y, ALPHA_CHANNEL, low_byte);
+
+        let high_byte = hi | (hi >> 4);
+        let x = (i_2 + 1) % 4;
+        let y = (i_2 + 1) / 4;
+        output.set_value(x, y, ALPHA_CHANNEL, high_byte);
     }
 }
 

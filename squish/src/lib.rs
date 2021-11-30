@@ -355,7 +355,7 @@ trait RawColor4x4Block {
 
     /// Get the value at position (x, y) with 0 <= x < 4 and 0 <= y < 4.
     /// The channel is the offset of the color channel with the convention of 0 = red, 1 = green, 2 = blue, 3 = alpha.
-    fn get_value(&mut self, x: usize, y: usize, channel: usize) -> u8;
+    fn get_value(&self, x: usize, y: usize, channel: usize) -> u8;
 
     /// Returns the number of channels supported by the underlying storage.
     fn number_of_channels(&self) -> usize;
@@ -371,7 +371,7 @@ impl<const N: usize> RawColor4x4Block for [[u8; N]; 16] {
         self[pixel_index][channel] = value;
     }
 
-    fn get_value(&mut self, x: usize, y: usize, channel: usize) -> u8 {
+    fn get_value(&self, x: usize, y: usize, channel: usize) -> u8 {
         let pixel_index = index_4x4_block(x, y);
         self[pixel_index][channel]
     }
